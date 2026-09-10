@@ -2,3 +2,4 @@ streamlit
 pandas
 numpy
 scipy
+pip install streamlit pandas numpy scipy requests python-dateutil
