@@ -9,7 +9,7 @@ Upload a CSV containing historical finished matches. Required columns (case-inse
 aliases are accepted): Date, HomeTeam, AwayTeam, FTHG, FTAG.
 Optional odds columns: B365H, B365D, B365A (or OddsHome, OddsDraw, OddsAway).
 """
-
+from data_sources import FootballDataConnector,
 from __future__ import annotations
 
 import io
@@ -163,6 +163,8 @@ st.title("⚽ Football Betting Research Lab")
 st.caption("Výzkumný MVP pro modelování pravděpodobností a paper betting. Bez napojení na sázkové kanceláře a bez automatického sázení.")
 
 with st.sidebar:
+  st.sidebar.header("📡 Live Data Source")
+data_source = st.sidebar.radio("Data input", ["Upload CSV", "Live API", "Demo Data"])
     st.header("Nastavení modelu")
     shrinkage = st.slider("Stabilizace malého vzorku", 0.0, 20.0, 5.0, 0.5, help="Vyšší hodnota více přibližuje týmové statistiky ligovému průměru.")
     max_goals = st.slider("Maximum gólů v matici", 5, 12, 8)
@@ -177,20 +179,58 @@ with st.sidebar:
 st.header("1. Historická data")
 upload = st.file_uploader("Nahraj CSV s ukončenými zápasy", type="csv")
 
-if upload is None:
-    st.info("Nahraj vlastní CSV. Povinné sloupce: Date, HomeTeam, AwayTeam, FTHG, FTAG. Volitelně: B365H, B365D, B365A.")
-    st.code("Date,HomeTeam,AwayTeam,FTHG,FTAG,B365H,B365D,B365A\n2025-08-10,Team A,Team B,2,1,1.95,3.60,4.10", language="text")
-    st.stop()
+if data_source == "Upload CSV":
+    upload = st.file_uploader("Nahraj CSV s ukončenými zápasy", type="csv")
+    if upload is None:
+        st.info("Nahraj vlastní CSV...")
+        st.stop()
+    try:
+        raw = pd.read_csv(upload)
+        matches = prepare_matches(raw)
+    except Exception as exc:
+        st.error(f"Data se nepodařilo načíst: {exc}")
+        st.stop()
 
-try:
-    raw = pd.read_csv(upload)
-    matches = prepare_matches(raw)
-except Exception as exc:
-    st.error(f"Data se nepodařilo načíst: {exc}")
-    st.stop()
+elif data_source == "Live API":
+    st.subheader("📡 Live Data & Odds")
+    
+    connector = FootballDataConnector()
+    odds_connector = OddsConnector()
+    
+    col_live1, col_live2 = st.columns(2)
+    
+    with col_live1:
+        st.write("**Nedávno dokončené zápasy**")
+        completed = connector.fetch_completed_matches(days_back=30)
+        if not completed.empty:
+            matches = prepare_matches(completed)
+            st.success(f"✓ Načteno {len(matches)} zápasů")
+        else:
+            st.warning("Žádné nedávné zápasy")
+    
+    with col_live2:
+        st.write("**Nadcházející zápasy**")
+        upcoming = connector.fetch_upcoming_matches()
+        if not upcoming.empty:
+            st.dataframe(upcoming, hide_index=True)
+        else:
+            st.info("Žádné nadcházející zápasy")
+    
+    st.divider()
+    st.write("**Live Kurzy**")
+    live_odds = odds_connector.fetch_live_odds()
+    if not live_odds.empty:
+        st.dataframe(live_odds, use_container_width=True, hide_index=True)
+    else:
+        st.info("Kurzy nejsou k dispozici")
 
-if len(matches) < 50:
-    st.warning("Dataset obsahuje méně než 50 platných zápasů. Výsledky budou velmi nestabilní; použij více sezón.")
+elif data_source == "Demo Data":
+    st.info("Používáš demo data pro testování.")
+    matches = pd.DataFrame([
+        {"date": "2025-01-10", "home": "Team A", "away": "Team B", "home_goals": 2, "away_goals": 1},
+        {"date": "2025-01-11", "home": "Team C", "away": "Team D", "home_goals": 1, "away_goals": 1},
+    ] * 25)  # Repeat for sufficient data
+    matches = prepare_matches(matches)
 
 summary = league_summary(matches)
 ratings = team_ratings(matches, shrinkage)
